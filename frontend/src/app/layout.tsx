@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import Providers from './Providers';
+import { Toaster } from 'sonner';
 
 const lato = Lato({ subsets: ['latin'], weight: ['300', '400', '700', '900'], display: 'swap' });
 
@@ -20,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Header />
           {children}
           <Footer />
+          <Toaster richColors position="top-center" />
         </Providers>
       </body>
     </html>

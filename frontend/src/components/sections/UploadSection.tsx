@@ -1,5 +1,9 @@
 'use client';
 import { useRef, useState } from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '@/store/store';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 
 const AI_MODELS = [
   '✨ GPT-4o Mini (موصى به - توازن مثالي)',
@@ -17,22 +21,125 @@ const UploadSection = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [aiModel, setAiModel] = useState(AI_MODELS[0]);
   const [jobDesc, setJobDesc] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadResult, setUploadResult] = useState<any>(null);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
+  const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Auth state
+  const { token, user } = useSelector((state: RootState) => state.auth);
+  const router = useRouter();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && ACCEPTED_TYPES.includes(file.type)) {
       setSelectedFile(file);
+      setError(null);
     } else {
       setSelectedFile(null);
-      if (file) alert('يرجى رفع ملف PDF أو Word فقط.');
+      if (file) setError('يرجى رفع ملف PDF أو Word فقط.');
     }
   };
 
   const handleChooseFile = () => inputRef.current?.click();
 
-  const handleUpload = () => {
-    alert('تم رفع وتحليل الملف (محاكاة)');
+  const handleUpload = async () => {
+    setError(null);
+    setUploadResult(null);
+    setAnalysisResult(null);
+    // Validate required fields
+    if (!user || !token) {
+      toast.error('يجب تسجيل الدخول أولاً.', { icon: '🔒', duration: 5000 });
+      setError('يجب تسجيل الدخول أولاً.');
+      return;
+    }
+    if (!selectedFile) {
+      toast.error('يرجى اختيار ملف السيرة الذاتية.', { icon: '📄', duration: 5000 });
+      setError('يرجى اختيار ملف السيرة الذاتية.');
+      return;
+    }
+    if (!email.trim()) {
+      toast.error('يرجى إدخال البريد الإلكتروني.', { icon: '✉️', duration: 5000 });
+      setError('يرجى إدخال البريد الإلكتروني.');
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      toast.error('يرجى إدخال بريد إلكتروني صحيح.', { icon: '✉️', duration: 5000 });
+      setError('يرجى إدخال بريد إلكتروني صحيح.');
+      return;
+    }
+    if (!fullName.trim()) {
+      toast.error('يرجى إدخال الاسم الكامل.', { icon: '🧑', duration: 5000 });
+      setError('يرجى إدخال الاسم الكامل.');
+      return;
+    }
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      toast.error('الحد الأقصى لحجم الملف هو 10 ميجابايت.', { icon: '⚠️', duration: 5000 });
+      setError('الحد الأقصى لحجم الملف هو 10 ميجابايت.');
+      return;
+    }
+    setLoading(true);
+    try {
+      // 1. Upload resume
+      const formData = new FormData();
+      formData.append('resume', selectedFile);
+      formData.append('aiModel', aiModel);
+      formData.append('email', email);
+      formData.append('fullName', fullName);
+      if (jobDesc) formData.append('jobDesc', jobDesc);
+      const uploadRes = await fetch('http://localhost:5000/api/v1/resumes', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json().catch(() => ({}));
+        const msg = data.message || data.error || 'فشل رفع السيرة الذاتية';
+        // Custom toast for validation errors
+        if (msg.includes('fullName') || msg.includes('email')) {
+          toast.error('يرجى إدخال الاسم الكامل والبريد الإلكتروني بشكل صحيح.', {
+            description: 'تأكد من تعبئة جميع الحقول المطلوبة.',
+            icon: '⚠️',
+            duration: 5000,
+          });
+        } else {
+          toast.error(msg, { icon: '❌', duration: 5000 });
+        }
+        setError(msg);
+        setLoading(false);
+        return;
+      }
+      const uploadData = await uploadRes.json();
+      // Redirect to analysis page
+      const resumeId = uploadData.resume?._id || uploadData.resume?.id || uploadData.resume?.resumeId || uploadData.id;
+      if (!resumeId) throw new Error('لم يتم العثور على معرف السيرة الذاتية بعد الرفع');
+      setSelectedFile(null);
+      if (inputRef.current) inputRef.current.value = '';
+      setJobDesc('');
+      setAiModel(AI_MODELS[0]);
+      setEmail('');
+      setFullName('');
+      router.push(`/analysis/${resumeId}`);
+    } catch (err: any) {
+      const msg = err.message || 'حدث خطأ أثناء رفع السيرة الذاتية';
+      if (msg.includes('fullName') || msg.includes('email')) {
+        toast.error('يرجى إدخال الاسم الكامل والبريد الإلكتروني بشكل صحيح.', {
+          description: 'تأكد من تعبئة جميع الحقول المطلوبة.',
+          icon: '⚠️',
+          duration: 5000,
+        });
+      } else {
+        toast.error(msg, { icon: '❌', duration: 5000 });
+      }
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRefresh = () => {
@@ -40,6 +147,10 @@ const UploadSection = () => {
     if (inputRef.current) inputRef.current.value = '';
     setJobDesc('');
     setAiModel(AI_MODELS[0]);
+    setError(null);
+    setUploadResult(null);
+    setAnalysisResult(null);
+    setLoading(false);
   };
 
   return (
@@ -52,7 +163,7 @@ const UploadSection = () => {
               <i data-lucide="upload" className="w-7 h-7 text-indigo-400" aria-hidden="true"></i>
               رفع السيرة الذاتية
             </span>
-            <button type="button" aria-label="تحديث" className="text-zinc-400 hover:text-indigo-400 transition-colors" onClick={handleRefresh}>
+            <button type="button" aria-label="تحديث" className="text-zinc-400 hover:text-indigo-400 transition-colors" onClick={handleRefresh} tabIndex={0} onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleRefresh()}>
               <i data-lucide="refresh-ccw" className="w-5 h-5" aria-hidden="true"></i>
             </button>
           </div>
@@ -73,6 +184,8 @@ const UploadSection = () => {
                 onClick={handleChooseFile}
                 className="flex items-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white px-5 py-2 rounded-md font-medium text-sm focus:outline-none focus-visible:ring focus-visible:ring-indigo-500/60 transition shadow"
                 aria-label="اختيار ملف"
+                tabIndex={0}
+                onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleChooseFile()}
               >
                 <i data-lucide="file" className="w-5 h-5" aria-hidden="true"></i>
                 اختيار ملف
@@ -83,12 +196,39 @@ const UploadSection = () => {
             </div>
           </div>
           <div>
+            <label htmlFor="full-name" className="block font-bold mb-2 text-zinc-200">الاسم الكامل <span className="text-red-500">*</span></label>
+            <input
+              id="full-name"
+              type="text"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-800 text-zinc-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+              placeholder="أدخل اسمك الكامل"
+              value={fullName}
+              onChange={e => setFullName(e.target.value)}
+              aria-label="الاسم الكامل"
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="email" className="block font-bold mb-2 text-zinc-200">البريد الإلكتروني <span className="text-red-500">*</span></label>
+            <input
+              id="email"
+              type="email"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-800 text-zinc-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+              placeholder="you@email.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              aria-label="البريد الإلكتروني"
+              required
+            />
+          </div>
+          <div>
             <label htmlFor="ai-model" className="block font-bold mb-2 text-zinc-200">نموذج الذكاء الاصطناعي</label>
             <select
               id="ai-model"
               className="w-full rounded-md border border-zinc-700 bg-zinc-800 text-zinc-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
               value={aiModel}
               onChange={e => setAiModel(e.target.value)}
+              aria-label="اختيار نموذج الذكاء الاصطناعي"
             >
               {AI_MODELS.map(model => (
                 <option key={model} value={model}>{model}</option>
@@ -104,13 +244,25 @@ const UploadSection = () => {
               placeholder="الصق وصف الوظيفة هنا..."
               value={jobDesc}
               onChange={e => setJobDesc(e.target.value)}
+              aria-label="وصف الوظيفة"
             />
           </div>
+          {error && (
+            <div className="text-red-500 text-sm font-bold mt-2" role="alert">{error}</div>
+          )}
+          {loading && (
+            <div className="flex items-center gap-2 text-indigo-400 text-sm font-bold mt-2">
+              <span className="inline-block w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" aria-label="جاري التحميل" />
+              جاري رفع وتحليل السيرة الذاتية...
+            </div>
+          )}
           <button
-            className="mt-2 flex items-center justify-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white px-8 py-3 rounded-lg font-bold text-lg transition focus:outline-none focus-visible:ring focus-visible:ring-indigo-500/60 shadow-lg"
+            className="mt-2 flex items-center justify-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white px-8 py-3 rounded-lg font-bold text-lg transition focus:outline-none focus-visible:ring focus-visible:ring-indigo-500/60 shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
             aria-label="رفع وتحليل"
             onClick={handleUpload}
-            disabled={!selectedFile}
+            disabled={!selectedFile || loading}
+            tabIndex={0}
+            onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleUpload()}
           >
             <i data-lucide="arrow-up-circle" className="w-6 h-6" aria-hidden="true"></i>
             رفع وتحليل
