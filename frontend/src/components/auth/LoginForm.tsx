@@ -14,14 +14,10 @@ const LoginForm = () => {
   const [password, setPassword] = useState("");
   const [success, setSuccess] = useState(false);
 
+  // Redirect immediately if already logged in
   useEffect(() => {
     if (token && user) {
-      setSuccess(true);
-      // Redirect to home after short delay
-      const timeout = setTimeout(() => {
-        router.push("/");
-      }, 1500);
-      return () => clearTimeout(timeout);
+      router.replace("/");
     }
   }, [token, user, router]);
 
@@ -38,14 +34,16 @@ const LoginForm = () => {
     setPassword("");
   };
 
-  if (token && user) {
-    return (
-      <div className="w-full max-w-md mx-auto bg-zinc-900/60 rounded-xl p-8 border border-zinc-800 mt-8 shadow-lg text-center">
-        <h2 className="text-2xl font-bold mb-4 text-zinc-100">مرحباً، {user.name || user.email}!</h2>
-        <p className="mb-6 text-zinc-400">تم تسجيل الدخول بنجاح. سيتم تحويلك إلى الصفحة الرئيسية...</p>
-      </div>
-    );
-  }
+  // Show success and replace history after login
+  useEffect(() => {
+    if (token && user) {
+      setSuccess(true);
+      const timeout = setTimeout(() => {
+        router.replace("/");
+      }, 1500);
+      return () => clearTimeout(timeout);
+    }
+  }, [token, user, router]);
 
   return (
     <form

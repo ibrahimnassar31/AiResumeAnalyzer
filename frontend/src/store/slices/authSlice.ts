@@ -1,7 +1,7 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { decodeJwt } from '@/lib/utils';
 
-const API_BASE_URL = 'http://localhost:5000/api/v1';
+export const API_BASE_URL = 'http://localhost:5000/api/v1';
 
 interface User {
   id: string;
@@ -14,6 +14,7 @@ interface AuthState {
   token: string | null;
   loading: boolean;
   error: string | null;
+  hydrated: boolean;
 }
 
 const initialState: AuthState = {
@@ -21,6 +22,7 @@ const initialState: AuthState = {
   token: null,
   loading: false,
   error: null,
+  hydrated: false,
 };
 
 // Hydrate auth state from localStorage on app load
@@ -29,12 +31,24 @@ export const hydrateAuth = createAsyncThunk(
   async (_, { dispatch }) => {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('token');
+      const userStr = localStorage.getItem('user');
+      let user: User | null = null;
+      if (userStr) {
+        try {
+          user = JSON.parse(userStr);
+        } catch {
+          user = null;
+        }
+      }
       if (token) {
         const decoded = decodeJwt(token);
         if (decoded?.exp && Date.now() / 1000 > decoded.exp) {
           dispatch(logout());
         } else {
           dispatch(setToken(token));
+          if (user) {
+            dispatch(setUser(user));
+          }
         }
       }
     }
@@ -80,6 +94,9 @@ export const loginUser = createAsyncThunk(
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          throw new Error('اسم المستخدم أو كلمة المرور غير صحيحة');
+        }
         const data = await res.json();
         throw new Error(data.message || 'Login failed');
       }
@@ -95,9 +112,7 @@ export const logoutUser = createAsyncThunk(
   'users/logout',
   async (_, { rejectWithValue }) => {
     try {
-      // If you have an API endpoint for logout, call it here
-      // await fetch(`${API_BASE_URL}/users/logout`, { method: 'POST', credentials: 'include' });
-      // For now, just resolve
+
       return true;
     } catch (err: any) {
       return rejectWithValue(err.message);
@@ -109,13 +124,14 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    // Synchronous logout: clear all auth state and remove persisted token
+    // Synchronous logout: clear all auth state and remove persisted token/user
     logout: (state) => {
       state.user = null;
       state.token = null;
       state.error = null;
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
+        localStorage.removeItem('user');
       }
     },
     setCredentials: (
@@ -127,11 +143,19 @@ const authSlice = createSlice({
       state.error = null;
       if (typeof window !== 'undefined') {
         localStorage.setItem('token', action.payload.token);
+        localStorage.setItem('user', JSON.stringify(action.payload.user));
       }
     },
     setToken: (state, action: PayloadAction<string>) => {
       state.token = action.payload;
       state.error = null;
+    },
+    setUser: (state, action: PayloadAction<User>) => {
+      state.user = action.payload;
+      state.error = null;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('user', JSON.stringify(action.payload));
+      }
     },
   },
   extraReducers: (builder) => {
@@ -139,9 +163,11 @@ const authSlice = createSlice({
       // Hydrate
       .addCase(hydrateAuth.pending, (state) => {
         state.loading = true;
+        state.hydrated = false;
       })
       .addCase(hydrateAuth.fulfilled, (state) => {
         state.loading = false;
+        state.hydrated = true;
       })
       // Register
       .addCase(registerUser.pending, (state) => {
@@ -155,6 +181,7 @@ const authSlice = createSlice({
         state.error = null;
         if (typeof window !== 'undefined') {
           localStorage.setItem('token', action.payload.token);
+          localStorage.setItem('user', JSON.stringify(action.payload.user));
         }
       })
       .addCase(registerUser.rejected, (state, action) => {
@@ -173,6 +200,7 @@ const authSlice = createSlice({
         state.error = null;
         if (typeof window !== 'undefined') {
           localStorage.setItem('token', action.payload.token);
+          localStorage.setItem('user', JSON.stringify(action.payload.user));
         }
       })
       .addCase(loginUser.rejected, (state, action) => {
@@ -186,10 +214,11 @@ const authSlice = createSlice({
         state.error = null;
         if (typeof window !== 'undefined') {
           localStorage.removeItem('token');
+          localStorage.removeItem('user');
         }
       });
   },
 });
 
-export const { logout, setCredentials, setToken } = authSlice.actions;
+export const { logout, setCredentials, setToken, setUser } = authSlice.actions;
 export default authSlice.reducer; 
